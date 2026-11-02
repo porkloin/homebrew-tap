@@ -1,12 +1,17 @@
-name: Bump hdrneon
+name: Bump formulas
 
+# Daily: point each formula at its repo's latest release (formulas whose repo has no release
+# yet are skipped), install and test it, and commit. One formula at a time.
 on:
   schedule:
     - cron: "41 6 * * *"
   workflow_dispatch:
     inputs:
+      formula:
+        description: "Only this formula (default: all)"
+        required: false
       tag:
-        description: "Release tag to bump to (default: latest)"
+        description: "Release tag to bump it to (default: latest; needs a formula)"
         required: false
 
 permissions:
@@ -19,15 +24,22 @@ concurrency:
 jobs:
   bump:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        formula: [hdrneon, clickflash]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ !inputs.formula || inputs.formula == matrix.formula }}
 
       - name: Update formula to the new release
         id: bump
+        if: ${{ !inputs.formula || inputs.formula == matrix.formula }}
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
-        run: scripts/bump-hdrneon.sh ${TAG:+"$TAG"}
+        run: scripts/bump.sh ${{ matrix.formula }} ${TAG:+"$TAG"}
 
       # Taps this checkout (working tree included), so the bumped formula is
       # what gets installed.
@@ -36,18 +48,23 @@ jobs:
 
       - name: Install and test
         if: steps.bump.outputs.changed == 'true'
+        env:
+          FORMULA: porkloin/tap/${{ matrix.formula }}
         run: |
-          brew install --formula porkloin/tap/hdrneon
-          brew test porkloin/tap/hdrneon
+          brew install --formula "$FORMULA"
+          brew test "$FORMULA"
           brew style porkloin/tap
-          brew audit --formula --strict --online porkloin/tap/hdrneon
+          brew audit --formula --strict --online "$FORMULA"
 
       - name: Commit
         if: steps.bump.outputs.changed == 'true'
         env:
+          NAME: ${{ matrix.formula }}
           VERSION: ${{ steps.bump.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "hdrneon ${VERSION}"
+          git commit -am "${NAME} ${VERSION}"
+          # An earlier formula in this run may have pushed already.
+          git pull --rebase
           git push

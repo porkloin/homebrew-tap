@@ -30,6 +30,13 @@ jobs:
       matrix:
         formula: [hdrneon, clickflash]
     steps:
+      # Must come before checkout: it replaces the workspace with its own fresh
+      # clone of this repo at GITHUB_SHA (symlinked as the tap), which would
+      # throw away the bump below. The checkout then reuses that tapped
+      # directory and leaves a tracking branch with push credentials.
+      - uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
+        if: ${{ !inputs.formula || inputs.formula == matrix.formula }}
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ !inputs.formula || inputs.formula == matrix.formula }}
 
@@ -40,11 +47,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
         run: scripts/bump.sh ${{ matrix.formula }} ${TAG:+"$TAG"}
-
-      # Taps this checkout (working tree included), so the bumped formula is
-      # what gets installed.
-      - uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
-        if: steps.bump.outputs.changed == 'true'
 
       - name: Install and test
         if: steps.bump.outputs.changed == 'true'

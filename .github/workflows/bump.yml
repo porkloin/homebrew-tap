@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: bump
@@ -58,15 +59,25 @@ jobs:
           brew style porkloin/tap
           brew audit --formula --strict --online "$FORMULA"
 
-      - name: Commit
+      # main only takes squash-merged PRs (repo ruleset), so land the bump as one.
+      - name: Open and merge a pull request
         if: steps.bump.outputs.changed == 'true'
         env:
+          GH_TOKEN: ${{ github.token }}
           NAME: ${{ matrix.formula }}
           VERSION: ${{ steps.bump.outputs.version }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "${NAME} ${VERSION}"
-          # An earlier formula in this run may have pushed already.
-          git pull --rebase
-          git push
+          branch="bump/${NAME}-${VERSION}"
+          # Left over from a run whose merge failed: same version, same change, so reuse it.
+          if ! git ls-remote --exit-code --heads origin "${branch}" >/dev/null; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git switch -c "${branch}"
+            git commit -am "${NAME} ${VERSION}"
+            git push origin "${branch}"
+          fi
+          if [[ "$(gh pr view "${branch}" --json state --jq .state 2>/dev/null)" != OPEN ]]; then
+            gh pr create --base main --head "${branch}" --title "${NAME} ${VERSION}" \
+              --body "Bump ${NAME} to ${VERSION}. Installed, tested and audited by the Bump formulas workflow."
+          fi
+          gh pr merge "${branch}" --squash --delete-branch
